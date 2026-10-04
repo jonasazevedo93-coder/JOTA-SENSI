@@ -1,0 +1,33 @@
+name: Gerar APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar projeto
+        uses: actions/checkout@v4
+
+      - name: Preparar projeto
+        run: |
+          mkdir projeto
+          unzip -q "JOTA-SENSI-APK-ONLINE (1).zip" -d projeto
+
+      - name: Encontrar projeto Android
+        run: |
+          find projeto -name gradlew -type f -exec chmod +x {} \;
+
+      - name: Compilar APK
+        run: |
+          GRADLEW=$(find projeto -name gradlew -type f | head -n 1)
+          cd "$(dirname "$GRADLEW")"
+          ./gradlew assembleDebug
+
+      - name: Disponibilizar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: JOTA-SENSI-APK
+          path: "**/build/outputs/apk/**/*.apk"
