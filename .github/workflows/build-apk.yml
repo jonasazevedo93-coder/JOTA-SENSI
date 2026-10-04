@@ -11,23 +11,192 @@ jobs:
       - name: Baixar projeto
         uses: actions/checkout@v4
 
-      - name: Preparar projeto
+      - name: Preparar ambiente
         run: |
-          mkdir projeto
-          unzip -q "JOTA-SENSI-APK-ONLINE (1).zip" -d projeto
+          sudo apt-get update
+          sudo apt-get install -y unzip
 
-      - name: Encontrar projeto Android
+          mkdir -p projeto/app/src/main/java/com/jotasensi/app
+          mkdir -p projeto/app/src/main/res/layout
+          mkdir -p projeto/app/src/main/res/mipmap-hdpi
+          mkdir -p projeto/app/src/main/res/mipmap-mdpi
+          mkdir -p projeto/app/src/main/res/mipmap-xhdpi
+          mkdir -p projeto/app/src/main/res/mipmap-xxhdpi
+          mkdir -p projeto/app/src/main/res/mipmap-xxxhdpi
+          mkdir -p projeto/app/src/main/assets
+
+          unzip -o "JOTA-SENSI-APK-ONLINE (1).zip" -d projeto/arquivos
+
+          HTML=$(find projeto/arquivos -type f -iname "jota-sensi-site-publico.html" | head -n 1)
+
+          if [ -z "$HTML" ]; then
+            HTML=$(find projeto/arquivos -type f -iname "*.html" | head -n 1)
+          fi
+
+          if [ -z "$HTML" ]; then
+            echo "ERRO: nenhum arquivo HTML encontrado."
+            exit 1
+          fi
+
+          cp "$HTML" projeto/app/src/main/assets/index.html
+
+      - name: Criar projeto Android
         run: |
-          find projeto -name gradlew -type f -exec chmod +x {} \;
+          cat > projeto/settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "JotaSensi"
+          include(":app")
+          EOF
+
+          cat > projeto/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.6.1' apply false
+          }
+          EOF
+
+          cat > projeto/app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.jotasensi.app'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.jotasensi.app'
+                  minSdk 23
+                  targetSdk 35
+                  versionCode 1
+                  versionName '1.0'
+              }
+          }
+          EOF
+
+          cat > projeto/app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET"/>
+
+              <application
+                  android:theme="@style/AppTheme"
+                  android:label="JOTA SENSI"
+                  android:usesCleartextTraffic="true"
+                  android:resizeableActivity="true">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:screenOrientation="portrait"
+                      android:exported="true">
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+
+                  </activity>
+
+              </application>
+
+          </manifest>
+          EOF
+
+          mkdir -p projeto/app/src/main/res/values
+
+          cat > projeto/app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+
+              <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:windowActionModeOverlay">true</item>
+                  <item name="android:colorAccent">#ff4d00</item>
+                  <item name="android:statusBarColor">#07090c</item>
+                  <item name="android:navigationBarColor">#07090c</item>
+                  <item name="android:windowLightStatusBar">false</item>
+              </style>
+
+          </resources>
+          EOF
+
+      - name: Criar aplicativo WebView
+        run: |
+          cat > projeto/app/src/main/java/com/jotasensi/app/MainActivity.java <<'EOF'
+          package com.jotasensi.app;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          public class MainActivity extends Activity {
+
+              private WebView webView;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  webView = new WebView(this);
+
+                  WebSettings settings = webView.getSettings();
+
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setDatabaseEnabled(true);
+                  settings.setAllowFileAccess(true);
+                  settings.setAllowContentAccess(true);
+                  settings.setBuiltInZoomControls(false);
+                  settings.setDisplayZoomControls(false);
+                  settings.setLoadWithOverviewMode(false);
+                  settings.setUseWideViewPort(false);
+
+                  webView.setWebViewClient(new WebViewClient());
+
+                  webView.loadUrl("file:///android_asset/index.html");
+
+                  setContentView(webView);
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (webView.canGoBack()) {
+                      webView.goBack();
+                  } else {
+                      super.onBackPressed();
+                  }
+              }
+          }
+          EOF
+
+      - name: Instalar Gradle
+        run: |
+          cd projeto
+          gradle wrapper --gradle-version 8.7
 
       - name: Compilar APK
         run: |
-          GRADLEW=$(find projeto -name gradlew -type f | head -n 1)
-          cd "$(dirname "$GRADLEW")"
+          cd projeto
+          chmod +x gradlew
           ./gradlew assembleDebug
 
       - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
         with:
           name: JOTA-SENSI-APK
-          path: "**/build/outputs/apk/**/*.apk"
+          path: projeto/app/build/outputs/apk/debug/app-debug.apk
